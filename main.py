@@ -47,5 +47,5 @@ for i in range(20):
   print(f"-="*20)
 
   inserir_metricas(1, porcentagem_cpu)
-  inserir_metricas(2, porcentagem_disco)
-  inserir_metricas(3, porcentagem_ram)
+  inserir_metricas(2, porcentagem_ram)
+  inserir_metricas(3, porcentagem_disco)
