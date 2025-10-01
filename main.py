@@ -1,118 +1,187 @@
-from dotenv import load_dotenv
-from mysql.connector import connect, Error
-import psutil as p
-import os
-import datetime
-from time import sleep
+import time
+from utils.Database import Fazer_consulta_banco
+from src.captura import capturar_dado
+from src.maquina_config import procurar_mac_address, validar_dados_maquina, procura_parametros
+from src.alertas import horario_atual, inserir_registro, processar_leitura_com_alerta
+from src.exportacao import exportar_para_csv 
+informacoes_maquina = {} 
 
-load_dotenv()
+logo = """
+║════════════════════════════════════════════════════════════════════════════════════════╣
+║     ███████     ███████████   ██████████  ███████████       ███████     ██████   █████ ║
+║   ███▒▒▒▒▒███  ▒▒███▒▒▒▒▒███ ▒▒███▒▒▒▒▒█ ▒▒███▒▒▒▒▒███    ███▒▒▒▒▒███  ▒▒██████ ▒▒███  ║ 
+║  ███     ▒▒███  ▒███    ▒███  ▒███  █ ▒   ▒███    ▒███   ███     ▒▒███  ▒███▒███ ▒███  ║
+║ ▒███      ▒███  ▒██████████   ▒██████     ▒██████████   ▒███      ▒███  ▒███▒▒███▒███  ║
+║ ▒███      ▒███  ▒███▒▒▒▒▒███  ▒███▒▒█     ▒███▒▒▒▒▒███  ▒███      ▒███  ▒███ ▒▒██████  ║
+║ ▒▒███     ███   ▒███    ▒███  ▒███ ▒   █  ▒███    ▒███  ▒▒███     ███   ▒███  ▒▒█████  ║
+║ ▒▒▒███████▒    ███████████   ██████████  █████   █████  ▒▒▒███████▒    █████  ▒▒█████  ║
+║  ▒▒▒▒▒▒▒     ▒▒▒▒▒▒▒▒▒▒▒   ▒▒▒▒▒▒▒▒▒▒  ▒▒▒▒▒   ▒▒▒▒▒     ▒▒▒▒▒▒▒     ▒▒▒▒▒    ▒▒▒▒▒    ║  
+║════════════════════════════════════════════════════════════════════════════════════════╣
+║                      SISTEMA DE MONITORAMENTO DA UPFINITY                              ║
+║════════════════════════════════════════════════════════════════════════════════════════╣
+    Iniciando Monitoramento ....
+╚════════════════════════════════════════════════════════════════════════════════════════╝
+    """
+menu_resumido = """
+    """
+saida = """
+    ╔════════════════════════════════════════════════════╗
+    ║             Encerrando a OBERON System             ║
+    ║════════════════════════════════════════════════════╣
+    ║  Sessão finalizada com sucesso.                    ║
+    ║  Todos os serviços foram encerrados.               ║
+    ║  Até a próxima utilização.                         ║
+    ╚════════════════════════════════════════════════════╝
+    """
+continuar_loop = True
+def formatar_palavra(palavra):
+    print(f"""
+    ╔════════════════════════════════════════════════════╗
+    ║  {palavra}
+    ╚════════════════════════════════════════════════════╝
+    """)
 
-def inserir_metricas(idComponente, valor):
-  config = {       
-    'user': os.getenv("USER_DB"),
-    'password': os.getenv("PASSWORD_DB"),
-    'host': os.getenv("HOST_DB"),
-    'database': os.getenv("DATABASE_DB")
-    }
-  
-  try:
-    db = connect(**config)
-    if (db.is_connected):
-      with db.cursor() as cursor:
-        query = f"INSERT INTO captura (idComponente, valor, dtCaptura) VALUES ({idComponente}, {valor}, now());"
-        cursor.execute(query)
-        db.commit()
-      
-      cursor.close()
-      db.close()
-
-  except Error as e:
-    print(f"Error to connect with MySQL - {e}")
+def main():
+    global informacoes_maquina
+    global continuar_loop
+    print(logo)
+    while continuar_loop:
+        try:
+            iniciar_monitoramento()
+        except KeyboardInterrupt:
+            print("\n Monitoramento Interrompido! ")
+            print(saida)
+            break
 
 
-def inserir_alerta(idTipoAlerta):
-  config = {
-  'user': os.getenv("USER_DB"),
-  'password': os.getenv("PASSWORD_DB"),
-  'host': os.getenv("HOST_DB"),
-  'database': os.getenv("DATABASE_DB")
-  }
+    if informacoes_maquina and informacoes_maquina.get('idMaquina'):
+        id_maquina = informacoes_maquina.get('idMaquina')
+        Fazer_consulta_banco({
+            "query": "UPDATE Maquina SET status = 'Inativo' WHERE idMaquina = %s",
+            "params": (id_maquina,)
+        })
+        formatar_palavra(" Status Maquina atualizado para INATIVO")
+        horario = horario_atual()
+        Fazer_consulta_banco({
+            "query": """
+                         INSERT INTO Alerta (fkMaquina, descricao, nivel, horarioInicio)
+                         VALUES (%s, %s, %s, %s)
+                    """,
+            "params": (id_maquina, 'Máquina está off-line', 'critico', horario)
+        })
+        formatar_palavra("Alerta Maquina off-line gerado")
 
-  try:
-    db = connect(**config)
-    if (db.is_connected):
-      with db.cursor() as cursor:
-        query = f"INSERT INTO alerta (idCaptura, idTPalerta) VALUES ((select idCaptura from captura order by idCaptura desc limit 1), {idTipoAlerta});"
-        cursor.execute(query)
-        db.commit()
-      
-      cursor.close()
-      db.close()
 
-  except Error as e:
-    print(f"Error to connect with MySQL - {e}")
+def iniciar_monitoramento():
+    global continuar_loop
+    global informacoes_maquina
+    
+    mac_adrees = procurar_mac_address()
+    
+    informacoes_maquina_local = validar_dados_maquina(mac_adrees)
 
-for i in range(20):
-  porcentagem_cpu = p.cpu_percent(interval=1, percpu=False)
-  porcentagem_ram = p.virtual_memory().percent
-  porcentagem_disco = p.disk_usage("/").percent
-  mac_address = p.net_if_addrs().get('wlo1')[2][1]
-  hora_registro = datetime.datetime.now().strftime("%H:%M:%S")
-  
-  os.system("clear")  
-  print("""
-      ███████    ███████████  ██████████ ███████████      ███████    ██████   █████
-    ███▒▒▒▒▒███ ▒▒███▒▒▒▒▒███▒▒███▒▒▒▒▒█▒▒███▒▒▒▒▒███   ███▒▒▒▒▒███ ▒▒██████ ▒▒███ 
-  ███     ▒▒███ ▒███    ▒███ ▒███  █ ▒  ▒███    ▒███  ███     ▒▒███ ▒███▒███ ▒███ 
-  ▒███      ▒███ ▒██████████  ▒██████    ▒██████████  ▒███      ▒███ ▒███▒▒███▒███ 
-  ▒███      ▒███ ▒███▒▒▒▒▒███ ▒███▒▒█    ▒███▒▒▒▒▒███ ▒███      ▒███ ▒███ ▒▒██████ 
-  ▒▒███     ███  ▒███    ▒███ ▒███ ▒   █ ▒███    ▒███ ▒▒███     ███  ▒███  ▒▒█████ 
-  ▒▒▒███████▒   ███████████  ██████████ █████   █████ ▒▒▒███████▒   █████  ▒▒█████
-    ▒▒▒▒▒▒▒    ▒▒▒▒▒▒▒▒▒▒▒  ▒▒▒▒▒▒▒▒▒▒ ▒▒▒▒▒   ▒▒▒▒▒    ▒▒▒▒▒▒▒    ▒▒▒▒▒    ▒▒▒▒▒     
-  
-          """)
+    if informacoes_maquina_local is None:
+        return
 
-  print("Registro inserido com sucesso!")
-  print(f"Hora do registro: {hora_registro}")
-  print(f"-="*20)
+    informacoes_maquina = informacoes_maquina_local
 
-  if porcentagem_cpu > 90.0:
-    print(f"Porcentagem de uso da CPU: {porcentagem_cpu}% - ALERTA CRITICO DE CPU!")
-    inserir_metricas(1, porcentagem_cpu)
-    inserir_alerta(1)
-  elif porcentagem_cpu > 75.0:
-    print(f"Porcentagem de uso da CPU: {porcentagem_cpu}% - ALERTA MODERADO DE CPU!")
-    inserir_metricas(1, porcentagem_cpu)
-    inserir_alerta(2)
-  else:
-    print(f"Porcentagem de uso da CPU: {porcentagem_cpu}%")
-    inserir_metricas(1, porcentagem_cpu)
+    informacao_parametros = procura_parametros(informacoes_maquina)
 
-  if porcentagem_ram > 95.0:
-    print(f"Porcentagem de uso da RAM: {porcentagem_ram}% - ALERTA CRÍTICO DE MEMÓRIA RAM!")
-    inserir_metricas(2, porcentagem_ram)
-    inserir_alerta(1)
-  elif porcentagem_ram > 80.0:
-    print(f"Porcentagem de uso da RAM: {porcentagem_ram}% - ALERTA MODERADO DE MEMÓRIA RAM!")
-    inserir_metricas(2, porcentagem_ram)
-    inserir_alerta(2)
-  else:
-    print(f"Porcentagem de uso da RAM: {porcentagem_ram}%")
-    inserir_metricas(2, porcentagem_ram)
-  
-  if porcentagem_disco > 95.0:
-    print(f"Porcentagem de uso do DISCO: {porcentagem_disco}% - ALERTA CRÍTICO DE USO DE DISCO!")
-    inserir_metricas(3, porcentagem_disco)
-    inserir_alerta(1)
-  elif porcentagem_disco > 85.0:
-    print(f"Porcentagem de uso do DISCO: {porcentagem_disco}% - ALERTA MODERADO DE MEMÓRIA RAM!")
-    inserir_metricas(3, porcentagem_disco)
-    inserir_alerta(2)
-  else:
-    print(f"Porcentagem de uso do DISCO: {porcentagem_disco}%")
-    inserir_metricas(3, porcentagem_disco)
-  
 
-  print(f"Mac adress: {mac_address}")
-  print(f"-="*20)
-  sleep(1)
+    if informacao_parametros is None or not informacao_parametros:
+        print("Nenhum parâmetro de monitoramento configurado.")
+        return
+
+    id_maquina = informacoes_maquina.get('idMaquina')       
+
+    Fazer_consulta_banco({
+        "query": "UPDATE Maquina SET status = 'Ativo' WHERE idMaquina = %s",
+        "params": (id_maquina,)
+    })
+    formatar_palavra(" Status Maquina atualizado para ATIVO ")
+
+    verificar_alerta_Maquina = Fazer_consulta_banco({
+        "query": """
+            SELECT idAlerta 
+            FROM Alerta
+            WHERE fkMaquina = %s AND horarioFinal IS NULL
+            ORDER BY horarioInicio DESC
+            LIMIT 1
+        """,
+        "params": (id_maquina,)
+    })
+
+    if verificar_alerta_Maquina:
+        horario = horario_atual()
+        Fazer_consulta_banco({
+            "query": "UPDATE Alerta SET horarioFinal = %s WHERE idAlerta = %s",
+            "params": (horario, verificar_alerta_Maquina[0][0],)
+        })
+        formatar_palavra("Alerta de Maquina offline anterior FECHADO.")
+
+
+    campos_obrigatorios_csv = ['cpu porcentagem', 'ram porcentagem', 'disco duro porcentagem']
+
+    while True:
+
+        print('╔═══════════════════════════════════════════════════════════════════════╗')
+        
+        horario_coleta = horario_atual()
+        dados_capturados = {} 
+        
+        for tipo_componente in informacao_parametros.keys():
+            valor_dado = capturar_dado(tipo_componente)
+            if valor_dado is not None:
+                dados_capturados[tipo_componente] = float(valor_dado)
+        
+        dados_csv = {
+            'horario': horario_coleta,
+            'idMaquina': informacoes_maquina_local.get('idMaquina'),
+            'hostname': informacoes_maquina_local.get('hostname'),
+            'macAddress': informacoes_maquina_local.get('macAddress')
+        }
+        
+        for tipo_componente, lista_parametros in informacao_parametros.items():
+            
+            valor_dado = dados_capturados.get(tipo_componente)
+            
+            if valor_dado is None:
+                continue 
+
+            if tipo_componente == 'cpu porcentagem':
+                dados_csv['cpu porcentagem'] = valor_dado
+            elif tipo_componente == 'ram porcentagem':
+                dados_csv['ram porcentagem'] = valor_dado
+            elif tipo_componente == 'disco porcentagem':
+                dados_csv['disco duro porcentagem'] = valor_dado
+                
+            
+            for medida in lista_parametros:
+                
+                print(
+                    f"\n   - Coleta: {tipo_componente} "
+                    f"({medida['unidade']}) → Valor: {valor_dado:.2f} {medida['unidade']} "
+                    f"→ Limite Configurado: {medida['limite']}"
+                )
+
+                inserir_registro(valor_dado, medida['idMaquinaComponente'])
+
+                processar_leitura_com_alerta(
+                    fkMaquinaComponente=int(medida['idMaquinaComponente']),
+                    tipo=tipo_componente,
+                    valor=float(valor_dado), 
+                    limite=medida['limite']
+                )
+        
+        if all(key in dados_csv for key in campos_obrigatorios_csv):
+            exportar_para_csv(dados_csv) 
+        else:
+            formatar_palavra("⚠️ [CSV] Aviso: Nem todas as métricas necessárias para o CSV foram coletadas (CPU, RAM, DISK). Exportação ignorada neste ciclo.")
+            
+        print('\n╚═══════════════════════════════════════════════════════════════════════╝')
+
+        time.sleep(10)
+
+
+if __name__ == '__main__':
+    main()
