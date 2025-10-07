@@ -56,8 +56,8 @@ def processar_leitura_com_alerta(fkMaquinaComponente: int, tipo: str, valor: flo
             })
             print(f"  Alerta ABERTO para {tipo} (nível: {nivel})")
         else:
-            data_hora_inicio = alerta_aberto[2]
-            if alerta_aberto[1] != nivel or alerta_expirado(data_hora_inicio):
+            # data_hora_inicio = alerta_aberto[2]
+            if alerta_aberto[1] != nivel :
                 
                 Fazer_consulta_banco({
                     "query": "UPDATE Alerta SET horarioFinal = %s, valorFinal = %s WHERE idAlerta = %s",

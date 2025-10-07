@@ -57,10 +57,10 @@ def main():
     if informacoes_maquina and informacoes_maquina.get('idMaquina'):
         id_maquina = informacoes_maquina.get('idMaquina')
         Fazer_consulta_banco({
-            "query": "UPDATE Maquina SET status = 'Inativo' WHERE idMaquina = %s",
+            "query": "UPDATE Maquina SET status = 'off-line' WHERE idMaquina = %s",
             "params": (id_maquina,)
         })
-        formatar_palavra(" Status Maquina atualizado para INATIVO")
+        formatar_palavra(" Status Maquina atualizado para off-line")
         horario = horario_atual()
         Fazer_consulta_banco({
             "query": """
@@ -81,6 +81,7 @@ def iniciar_monitoramento():
     informacoes_maquina_local = validar_dados_maquina(mac_adrees)
 
     if informacoes_maquina_local is None:
+        continuar_loop = False
         return
 
     informacoes_maquina = informacoes_maquina_local
@@ -90,15 +91,16 @@ def iniciar_monitoramento():
 
     if informacao_parametros is None or not informacao_parametros:
         print("Nenhum parâmetro de monitoramento configurado.")
+        continuar_loop = False
         return
 
     id_maquina = informacoes_maquina.get('idMaquina')       
 
     Fazer_consulta_banco({
-        "query": "UPDATE Maquina SET status = 'Ativo' WHERE idMaquina = %s",
+        "query": "UPDATE Maquina SET status = 'on-line' WHERE idMaquina = %s",
         "params": (id_maquina,)
     })
-    formatar_palavra(" Status Maquina atualizado para ATIVO ")
+    formatar_palavra(" Status Maquina atualizado para ON-LINE ")
 
     verificar_alerta_Maquina = Fazer_consulta_banco({
         "query": """
@@ -128,7 +130,6 @@ def iniciar_monitoramento():
         
         horario_coleta = horario_atual()
         dados_capturados = {} 
-        
         for tipo_componente in informacao_parametros.keys():
             valor_dado = capturar_dado(tipo_componente)
             if valor_dado is not None:

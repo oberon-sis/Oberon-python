@@ -15,7 +15,7 @@ def exportar_para_csv(dados: dict):
             if escrever_cabecalho:
                 writer.writeheader() 
             writer.writerow(dados)
-            print(f"  [CSV] Dados exportados com sucesso para {nome_arquivo}")
+            print(f" \n [CSV] Dados exportados com sucesso para {nome_arquivo}")
             
     except Exception as e:
         print(f"⚠️ Erro ao exportar dados para CSV: {e}")

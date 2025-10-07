@@ -19,7 +19,6 @@ ACOES_METRICAS = {
 }
 
 def capturar_dado(tipo: str):
-    print(tipo)
     try:
         funcao = ACOES_METRICAS.get(tipo)
         return funcao() if funcao else None
