@@ -1,82 +1,44 @@
+# src/alertas.py
+
 from utils.Database import Fazer_consulta_banco
-from datetime import datetime, timedelta
+from src.log_evento import registrar_log_evento
 
-def horario_atual():
-    agora = datetime.now()
-    return agora.strftime("%Y-%m-%d %H:%M:%S")
+def inserir_registro_de_metrica(valor: float, fkComponente: int) -> int:
+    """ Insere o Registro e retorna o ID. """
+    try:
+        id_registro = Fazer_consulta_banco({
+            "query": "INSERT INTO Registro (valor, fkComponente) VALUES (%s, %s);",
+            "params": (valor, fkComponente),
+        })
+        if id_registro > 0:
+            print(f"   [DB] Registro de métrica inserido com sucesso para componente {fkComponente}. ID: {id_registro}")
+        return id_registro
+    except RuntimeError as e:
+        registrar_log_evento(f"ERRO BD CRÍTICO: Falha ao inserir Registro: {str(e)}", False)
+        return -1
 
-def inserir_registro(valor: float, fk_parametro: int):
-    valor = float(valor)
-
-    resultado = Fazer_consulta_banco({
-        "query": "INSERT INTO Registro (valor, horario, fkMaquinaComponente) VALUES (%s, NOW(), %s);",
-        "params": (valor, fk_parametro)
-    })
-    if resultado >= 0:
-        print(resultado, "registro inserido")
-
-def processar_leitura_com_alerta(fkMaquinaComponente: int, tipo: str, valor: float, limite: float):
-    horario = horario_atual()
-    valor = float(valor)
-
-    nivel = None
-    if valor >= limite * 1.2:
-        nivel = "Critico"
-    elif valor >= limite:
-        nivel = "Alerta"
-    elif valor >= limite * 0.9:
-        nivel = "Atenção"
+def processar_alerta_leitura(idRegistro: int, idParametro: int, tipo: str, valor: float, limite: float, nivel: str, fkLogSistema: int):
+    """ Processa o limite e insere o Alerta no DB. """
     
-    alerta_aberto = Fazer_consulta_banco({
-        "query": """
-            SELECT idAlerta, nivel, horarioInicio
-            FROM Alerta
-            WHERE fkMaquinaComponente = %s AND descricao = %s AND horarioFinal IS NULL
-            ORDER BY horarioInicio DESC
-            LIMIT 1
-        """,
-        "params": (fkMaquinaComponente, tipo)
-    })
-
-    alerta_aberto = alerta_aberto[0] if alerta_aberto else None
-
-    def alerta_expirado(data_hora_inicio):
-        if isinstance(data_hora_inicio, datetime):
-            return datetime.now() - data_hora_inicio > timedelta(minutes=5)
-        return False
-
-    if nivel: 
-        if not alerta_aberto:
-            Fazer_consulta_banco({
-                "query": """
-                    INSERT INTO Alerta (fkMaquinaComponente, descricao, nivel, valorInicial, horarioInicio)
-                    VALUES (%s, %s, %s, %s, %s)
-                """,
-                "params": (fkMaquinaComponente, tipo, nivel, valor, horario)
+    alerta_ativo = valor >= limite
+    
+    if alerta_ativo:
+        descricao = f"{tipo} atingiu o limite de {nivel} ({limite:.2f}%). Valor atual: {valor:.2f}%."
+        
+        try:
+            id_alerta = Fazer_consulta_banco({
+                "query": "INSERT INTO Alerta (fkRegistro, fkParametro, descricao, nivel) VALUES (%s, %s, %s, %s);",
+                "params": (idRegistro, idParametro, descricao, nivel),
             })
-            print(f"  Alerta ABERTO para {tipo} (nível: {nivel})")
-        else:
-            # data_hora_inicio = alerta_aberto[2]
-            if alerta_aberto[1] != nivel :
-                
-                Fazer_consulta_banco({
-                    "query": "UPDATE Alerta SET horarioFinal = %s, valorFinal = %s WHERE idAlerta = %s",
-                    "params": (horario, valor, alerta_aberto[0])
-                })
-                
-                Fazer_consulta_banco({
-                    "query": """
-                        INSERT INTO Alerta (fkMaquinaComponente, descricao, nivel, valorInicial, horarioInicio)
-                        VALUES (%s, %s, %s, %s, %s)
-                    """,
-                    "params": (fkMaquinaComponente, tipo, nivel, valor, horario)
-                })
-                print(f"  Alerta atualizado: NOVO registro para {tipo} (nível: {nivel})")
+            
+            if id_alerta > 0:
+                print(f"   Alerta ABERTO para {tipo} (nível: {nivel}). ID Alerta: {id_alerta}")
+                registrar_log_evento(f"Alerta ABERTO ({nivel}) para {tipo}. ID={id_alerta}", True, fkLogSistema, 'LOG ALERTA')
+            else:
+                registrar_log_evento(f"ERRO: Falha ao inserir Alerta para {tipo} no DB.", True, fkLogSistema, 'ERRO ALERTA')
+        except RuntimeError as e:
+            registrar_log_evento(f"ERRO BD CRÍTICO ao gerar alerta para {tipo}: {str(e)}", True, fkLogSistema, 'ERRO ALERTA')
 
-    else: 
-        if alerta_aberto:
-            Fazer_consulta_banco({
-                "query": "UPDATE Alerta SET horarioFinal = %s, valorFinal = %s WHERE idAlerta = %s",
-                "params": (horario, valor, alerta_aberto[0])
-            })
-            print(f"  Alerta FECHADO para {tipo}")
+def mandar_notificao_slack(mensagem):
+    """ Simulação de envio de notificação (para implementação futura). """
+    print(f"[SLACK] Notificação pendente: {mensagem}")
