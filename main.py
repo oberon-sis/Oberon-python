@@ -1,10 +1,20 @@
+# main.py
 import time
-from utils.Database import Fazer_consulta_banco
-from src.captura import capturar_dado
-from src.maquina_config import procurar_mac_address, validar_dados_maquina, procura_parametros
-from src.alertas import horario_atual, inserir_registro, processar_leitura_com_alerta
-from src.exportacao import exportar_para_csv 
-informacoes_maquina = {} 
+from utils.display_utils import formatar_palavra
+from src.log_evento import registrar_log_evento
+from src.log_sistema_detalhe import iniciar_sessao_log_sistema, finalizar_sessao_log_sistema, inserir_detalhe_de_evento
+from src.maquina_config import buscar_e_validar_maquina, obter_parametros_monitoramento
+from src.alertas import inserir_registro_de_metrica, processar_alerta_leitura
+from src.captura import capturar_dado_da_metrica
+from src.incidente import registrar_incidente
+
+
+# Constantes de Configuração
+INTERVALO_DE_COLETA_SEGUNDOS = 10 
+
+# Variáveis de estado global (simples)
+maquina_data = None
+fkLogSistema = None
 
 logo = """
 ║════════════════════════════════════════════════════════════════════════════════════════╣
@@ -33,155 +43,96 @@ saida = """
     ║  Até a próxima utilização.                         ║
     ╚════════════════════════════════════════════════════╝
     """
-continuar_loop = True
-def formatar_palavra(palavra):
-    print(f"""
-    ╔════════════════════════════════════════════════════╗
-    ║  {palavra}
-    ╚════════════════════════════════════════════════════╝
-    """)
-
 def main():
-    global informacoes_maquina
-    global continuar_loop
-    print(logo)
-    while continuar_loop:
-        try:
-            iniciar_monitoramento()
-        except KeyboardInterrupt:
-            print("\n Monitoramento Interrompido! ")
-            print(saida)
-            break
-
-
-    if informacoes_maquina and informacoes_maquina.get('idMaquina'):
-        id_maquina = informacoes_maquina.get('idMaquina')
-        Fazer_consulta_banco({
-            "query": "UPDATE Maquina SET status = 'off-line' WHERE idMaquina = %s",
-            "params": (id_maquina,)
-        })
-        formatar_palavra(" Status Maquina atualizado para off-line")
-        horario = horario_atual()
-        Fazer_consulta_banco({
-            "query": """
-                         INSERT INTO Alerta (fkMaquina, descricao, nivel, horarioInicio)
-                         VALUES (%s, %s, %s, %s)
-                    """,
-            "params": (id_maquina, 'Máquina está off-line', 'critico', horario)
-        })
-        formatar_palavra("Alerta Maquina off-line gerado")
-
-
-def iniciar_monitoramento():
-    global continuar_loop
-    global informacoes_maquina
+    """ Ponto de entrada principal com tratamento de interrupção. """
+    global fkLogSistema
+    global logo
     
-    mac_adrees = procurar_mac_address()
+    try:
+        print(logo)
+        orquestrar_coleta()
+        
+    except KeyboardInterrupt:
+        formatar_palavra("\nMonitoramento Interrompido pelo Usuário.")
     
-    informacoes_maquina_local = validar_dados_maquina(mac_adrees)
+    finally:
+        # Lógica de encerramento
+        if fkLogSistema is not None and fkLogSistema != -1:
+            registrar_log_evento("Agente encerrado. Finalizando sessão LogSistema.", False, None, 'LOG FIM')
+            
+            # 1. Insere LogDetalheEvento para o desligamento
+            id_log_detalhe = inserir_detalhe_de_evento(
+                fkLogSistema, 'Desligamento', 'Agente encerrado por KeyboardInterrupt.'
+            )
+            
+            # 2. Registra Incidente
+            if id_log_detalhe != -1:
+                 registrar_incidente(
+                    id_log_detalhe, 'Máquina Desligou/Agente Encerrado', 'Encerramento inesperado.', 'Software', 'Critica', fkLogSistema
+                )
+            
+            # 3. Finaliza LogSistema
+            finalizar_sessao_log_sistema(fkLogSistema)
 
-    if informacoes_maquina_local is None:
-        continuar_loop = False
+def orquestrar_coleta():
+    """ Orquestrador principal funcional. """
+    global maquina_data
+    global fkLogSistema
+    
+    # 1. VALIDAÇÃO E INÍCIO DE SESSÃO
+    maquina_data = buscar_e_validar_maquina()
+    
+    if maquina_data is None:
         return
 
-    informacoes_maquina = informacoes_maquina_local
-
-    informacao_parametros = procura_parametros(informacoes_maquina)
-
-
-    if informacao_parametros is None or not informacao_parametros:
-        print("Nenhum parâmetro de monitoramento configurado.")
-        continuar_loop = False
+    fkLogSistema = iniciar_sessao_log_sistema(maquina_data['idMaquina'])
+    if fkLogSistema == -1:
+        registrar_log_evento("Falha crítica: Não foi possível iniciar a sessão LogSistema.", False, None, 'ERRO INICIAL')
         return
 
-    id_maquina = informacoes_maquina.get('idMaquina')       
+    registrar_log_evento(f"Monitoramento iniciado. Sessão: {fkLogSistema}", True, fkLogSistema, 'LOG INICIO')
 
-    Fazer_consulta_banco({
-        "query": "UPDATE Maquina SET status = 'on-line' WHERE idMaquina = %s",
-        "params": (id_maquina,)
-    })
-    formatar_palavra(" Status Maquina atualizado para ON-LINE ")
+    # 2. CARREGAR PARÂMETROS
+    parametros = obter_parametros_monitoramento(maquina_data['idMaquina'])
+    
+    if not parametros:
+        registrar_log_evento("Nenhum parâmetro configurado. Encerrando.", True, fkLogSistema, 'LOG GERAL')
+        return
 
-    verificar_alerta_Maquina = Fazer_consulta_banco({
-        "query": """
-            SELECT idAlerta 
-            FROM Alerta
-            WHERE fkMaquina = %s AND horarioFinal IS NULL
-            ORDER BY horarioInicio DESC
-            LIMIT 1
-        """,
-        "params": (id_maquina,)
-    })
-
-    if verificar_alerta_Maquina:
-        horario = horario_atual()
-        Fazer_consulta_banco({
-            "query": "UPDATE Alerta SET horarioFinal = %s WHERE idAlerta = %s",
-            "params": (horario, verificar_alerta_Maquina[0][0],)
-        })
-        formatar_palavra("Alerta de Maquina offline anterior FECHADO.")
-
-
-    campos_obrigatorios_csv = ['cpu porcentagem', 'ram porcentagem', 'disco duro porcentagem']
-
+    # 3. LOOP DE COLETA
     while True:
+        registrar_log_evento("Iniciando novo ciclo de coleta...", True, fkLogSistema, 'LOG COLETA')
+        print('╔═══════════════════════════════════════════════════════════════════════════════════════════════════════════════╗')
+        
+        for tipo, lista_parametros in parametros.items():
+            
+            # Coleta o valor
+            valor_dado = capturar_dado_da_metrica(tipo, fkLogSistema)
 
-        print('╔═══════════════════════════════════════════════════════════════════════╗')
-        
-        horario_coleta = horario_atual()
-        dados_capturados = {} 
-        for tipo_componente in informacao_parametros.keys():
-            valor_dado = capturar_dado(tipo_componente)
-            if valor_dado is not None:
-                dados_capturados[tipo_componente] = float(valor_dado)
-        
-        dados_csv = {
-            'horario': horario_coleta,
-            'idMaquina': informacoes_maquina_local.get('idMaquina'),
-            'hostname': informacoes_maquina_local.get('hostname'),
-            'macAddress': informacoes_maquina_local.get('macAddress')
-        }
-        
-        for tipo_componente, lista_parametros in informacao_parametros.items():
-            
-            valor_dado = dados_capturados.get(tipo_componente)
-            
             if valor_dado is None:
-                continue 
-
-            if tipo_componente == 'cpu porcentagem':
-                dados_csv['cpu porcentagem'] = valor_dado
-            elif tipo_componente == 'ram porcentagem':
-                dados_csv['ram porcentagem'] = valor_dado
-            elif tipo_componente == 'disco porcentagem':
-                dados_csv['disco duro porcentagem'] = valor_dado
-                
+                 continue
             
-            for medida in lista_parametros:
-                
-                print(
-                    f"\n   - Coleta: {tipo_componente} "
-                    f"({medida['unidade']}) → Valor: {valor_dado:.2f} {medida['unidade']} "
-                    f"→ Limite Configurado: {medida['limite']}"
-                )
+            fkComponente = lista_parametros[0]['fkComponente']
 
-                inserir_registro(valor_dado, medida['idMaquinaComponente'])
-
-                processar_leitura_com_alerta(
-                    fkMaquinaComponente=int(medida['idMaquinaComponente']),
-                    tipo=tipo_componente,
-                    valor=float(valor_dado), 
-                    limite=medida['limite']
-                )
+            # Insere Registro ÚNICO
+            idRegistro = inserir_registro_de_metrica(valor_dado, fkComponente)
+            
+            if idRegistro != -1:
+                # Processa os 3 níveis (ATENCAO, ALERTA, CRITICO)
+                for medida in lista_parametros:
+                    
+                    print(f"   - Coleta: {tipo} ({medida['unidade']}) → Valor: {valor_dado:.2f} {medida['unidade']} → Limite Configurado ({medida['nivel']}): {medida['limite']}")
+                    
+                    processar_alerta_leitura(
+                        idRegistro, medida['idParametro'], tipo, valor_dado, 
+                        medida['limite'], medida['nivel'], fkLogSistema
+                    )
         
-        if all(key in dados_csv for key in campos_obrigatorios_csv):
-            exportar_para_csv(dados_csv) 
-        else:
-            formatar_palavra("⚠️ [CSV] Aviso: Nem todas as métricas necessárias para o CSV foram coletadas (CPU, RAM, DISK). Exportação ignorada neste ciclo.")
-            
-        print('\n╚═══════════════════════════════════════════════════════════════════════╝')
+        print('\n╚═══════════════════════════════════════════════════════════════════════════════════════════════════════════╝')
+        time.sleep(INTERVALO_DE_COLETA_SEGUNDOS)
 
-        time.sleep(10)
+
+
 
 
 if __name__ == '__main__':
