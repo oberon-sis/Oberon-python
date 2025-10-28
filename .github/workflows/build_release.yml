@@ -81,32 +81,42 @@ jobs:
             OS_SUFFIX="Linux"
             EXECUTABLE_EXT=""
           else
-            OS_SUFFIX="macOS" 
+            OS_SUFFIX="Undefined" 
             EXECUTABLE_EXT=""
           fi
 
           ZIP_NAME="${BASE_NAME}-${VERSION}-${OS_SUFFIX}.zip"
 
           # 1. Encontra o executável gerado
-          # Busca com maxdepth 2 para cobrir casos como dist/app/app ou dist/app.exe
-          # ATENÇÃO: Se o PyInstaller gera dist/OberonAgente/OberonAgente, o find retorna este caminho.
           EXECUTABLE_PATH=$(find "$DIST_PATH" -maxdepth 2 -type f -name "${BASE_NAME}${EXECUTABLE_EXT}" -print -quit)
           if [ -z "$EXECUTABLE_PATH" ]; then
             echo "Erro: Executável não encontrado!"
             exit 1
           fi
 
-          TARGET_PATH="$DIST_PATH/${BASE_NAME}${EXECUTABLE_EXT}"
+          TARGET_FILENAME="${BASE_NAME}${EXECUTABLE_EXT}"
+          TARGET_PATH="$DIST_PATH/$TARGET_FILENAME"
+          TEMP_PATH="$DIST_PATH/temp_move_${TARGET_FILENAME}" # Novo caminho temporário
 
-          if echo "$EXECUTABLE_PATH" | grep -q "$DIST_PATH/$BASE_NAME/"; then
-            echo "Movendo executável aninhado de '$EXECUTABLE_PATH' para '$TARGET_PATH'"
-            mv "$EXECUTABLE_PATH" "$TARGET_PATH"
+          if [[ "$EXECUTABLE_PATH" != "$TARGET_PATH" ]]; then
+            echo "Executável aninhado encontrado: '$EXECUTABLE_PATH'. Movendo em duas etapas para garantir estabilidade."
+            
+            mv "$EXECUTABLE_PATH" "$TEMP_PATH"
+            
+            mv "$TEMP_PATH" "$TARGET_PATH"
+            
+            PARENT_DIR=$(dirname "$EXECUTABLE_PATH")
+            if [ "$PARENT_DIR" != "$DIST_PATH" ]; then
+              rmdir "$PARENT_DIR" 2>/dev/null || echo "Aviso: Não foi possível remover o diretório pai: $PARENT_DIR"
+            fi
           else
-            echo "Executável já está na raiz de dist. Pulando mv."
+            echo "Executável já está na raiz de dist. Pulando movimentação."
           fi
 
+          # 3. Copia o .env
           cp .env "$DIST_PATH/.env"
 
+          # 4. Promove o nome do ZIP para $GITHUB_ENV
           echo "ZIP_NAME=$ZIP_NAME" >> $GITHUB_ENV
           echo "zip_name_output=$ZIP_NAME" >> $GITHUB_OUTPUT # Mantém o output para o Upload
 
