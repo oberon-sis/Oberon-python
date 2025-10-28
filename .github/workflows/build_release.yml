@@ -1,0 +1,77 @@
+name: Build e Release do OberonAgente
+
+on:
+  push:
+    tags:
+      - 'v*.*.*' # Ex: v1.0.0, v2.1.5
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+    
+    runs-on: ${{ matrix.os }}
+    
+    steps:
+    - name: Checkout do Código
+      uses: actions/checkout@v4
+
+    - name: Configurar Python 3.11
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+        
+    - name: Instalar Dependências e PyInstaller
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install pyinstaller
+
+    - name: Rodar PyInstaller (Usando main.spec)
+      run: |
+        pyinstaller main.spec
+      
+    - name: Definir Nome do Executável e Caminho do Asset
+      shell: bash
+      run: |
+        VERSION=${{ github.ref_name }}
+
+        EXECUTABLE_NAME="OberonAgente" 
+        
+        if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
+          ORIGINAL_NAME="${EXECUTABLE_NAME}.exe" 
+          NEW_NAME="${EXECUTABLE_NAME}-${VERSION}-Windows.exe"
+        elif [[ "${{ matrix.os }}" == "ubuntu-latest" ]]; then
+          ORIGINAL_NAME="${EXECUTABLE_NAME}"
+          NEW_NAME="${EXECUTABLE_NAME}-${VERSION}-Linux"
+        elif [[ "${{ matrix.os }}" == "macos-latest" ]]; then
+          ORIGINAL_NAME="${EXECUTABLE_NAME}"
+          NEW_NAME="${EXECUTABLE_NAME}-${VERSION}-macOS"
+        fi
+        
+        mv "dist/$ORIGINAL_NAME" "dist/$NEW_NAME"
+        echo "ASSET_PATH=dist/$NEW_NAME" >> $GITHUB_ENV
+    
+    # --- Criação do Release e Upload de Assets ---
+    
+    - name: Criar Release (Apenas no Windows Runner)
+      if: startsWith(github.ref, 'refs/tags/') && matrix.os == 'windows-latest'
+      id: create_release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: ${{ github.ref }}
+        release_name: Release ${{ github.ref_name }}
+        draft: false
+        prerelease: false
+
+    - name: Anexar o Executável (Asset) à Release
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url || github.event.release.upload_url }}
+        asset_path: ${{ env.ASSET_PATH }}
+        asset_name: ${{ env.ASSET_PATH | basename }}

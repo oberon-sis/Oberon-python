@@ -6,3 +6,20 @@ coleta_maquina_1.csv
 teste.py
 src/__init__.py
 log_eventos_do_sistema.txt
+venv_main/
+.venv/
+env/
+*.env
+
+build/
+dist/
+main.spec # Se for gerado em runtime
+
+__pycache__/
+
+OberonAgente/
+
+*.csv
+*.log
+log_eventos_do_sistema.txt
+coleta_maquina_1.csv
