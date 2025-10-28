@@ -87,7 +87,9 @@ jobs:
 
           ZIP_NAME="${BASE_NAME}-${VERSION}-${OS_SUFFIX}.zip"
 
-          # 1. Encontra o executável gerado (robusto para subpastas do PyInstaller)
+          # 1. Encontra o executável gerado
+          # Busca com maxdepth 2 para cobrir casos como dist/app/app ou dist/app.exe
+          # ATENÇÃO: Se o PyInstaller gera dist/OberonAgente/OberonAgente, o find retorna este caminho.
           EXECUTABLE_PATH=$(find "$DIST_PATH" -maxdepth 2 -type f -name "${BASE_NAME}${EXECUTABLE_EXT}" -print -quit)
           if [ -z "$EXECUTABLE_PATH" ]; then
             echo "Erro: Executável não encontrado!"
@@ -95,17 +97,20 @@ jobs:
           fi
 
           TARGET_PATH="$DIST_PATH/${BASE_NAME}${EXECUTABLE_EXT}"
-          if [ "$EXECUTABLE_PATH" != "$TARGET_PATH" ]; then
-            echo "Movendo '$EXECUTABLE_PATH' para '$TARGET_PATH'"
+
+          if echo "$EXECUTABLE_PATH" | grep -q "$DIST_PATH/$BASE_NAME/"; then
+            echo "Movendo executável aninhado de '$EXECUTABLE_PATH' para '$TARGET_PATH'"
             mv "$EXECUTABLE_PATH" "$TARGET_PATH"
           else
-            echo "Executável já está no destino. Pulando mv para evitar o erro 'are identical'."
+            echo "Executável já está na raiz de dist. Pulando mv."
           fi
+
           cp .env "$DIST_PATH/.env"
 
           echo "ZIP_NAME=$ZIP_NAME" >> $GITHUB_ENV
           echo "zip_name_output=$ZIP_NAME" >> $GITHUB_OUTPUT # Mantém o output para o Upload
 
+      # Criar ZIP no Windows (PowerShell)
       - name: Criar ZIP Windows
         if: runner.os == 'Windows'
         shell: pwsh
@@ -120,6 +125,7 @@ jobs:
           # Compress-Archive usando caminhos seguros
           Compress-Archive -Path $ExePath, $EnvPath -DestinationPath $DestPath
 
+      # Criar ZIP Linux/macOS (Bash)
       - name: Criar ZIP Linux/macOS
         if: runner.os != 'Windows'
         shell: bash
@@ -130,6 +136,7 @@ jobs:
       - name: Upload do ZIP como artefato
         uses: actions/upload-artifact@v4
         with:
+          # Usa o output da etapa prepare_files (zip_name_output)
           name: ${{ steps.prepare_files.outputs.zip_name_output }}
           path: ${{ env.DIST_PATH }}/${{ steps.prepare_files.outputs.zip_name_output }}
 
