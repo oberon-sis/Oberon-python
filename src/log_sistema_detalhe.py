@@ -1,39 +1,53 @@
-# src/log_evento.py
+# src/log_sistema_detalhe.py
 
-import os
-from utils.display_utils import obter_horario_atual, formatar_palavra
-from utils.Database import Fazer_consulta_banco 
+from utils.Database import Fazer_consulta_banco
+from src.log_evento import registrar_log_evento
 
-LOG_FILE_PATH = "log_eventos_do_sistema.txt"
-
-def _imprimir_e_salvar_txt(log_texto: str):
-    """ Imprime no terminal e salva no arquivo TXT. """
-    formatar_palavra(f"REGISTRO DE EVENTO GERAL: {log_texto}")
+def iniciar_sessao_log_sistema(fk_maquina: int) -> int:
+    """ Insere em LogSistema e retorna o ID. """
     try:
-        with open(LOG_FILE_PATH, 'a', encoding='utf-8') as f:
-            f.write(log_texto + "\n")
-    except Exception as e:
-        print(f"⚠️ Erro ao escrever no arquivo de log TXT: {e}") 
+        id_inserido = Fazer_consulta_banco({
+            "query": "INSERT INTO LogSistema (fkMaquina, tipoAcesso) VALUES (%s, 'AgentePython');",
+            "params": (fk_maquina,),
+        })
+        if id_inserido > 0:
+            registrar_log_evento(f"[DB] Sessão de monitoramento (LogSistema) iniciada. ID: {id_inserido}", False)
+        return id_inserido
+    
+    except RuntimeError as e:
+        registrar_log_evento(f"ERRO CRÍTICO ao iniciar LogSistema: {str(e)}", False)
+        return -1
 
-def registrar_log_evento(mensagem: str, registrar_bd: bool = False, fkLogSistema: int = None, eventoCaptura: str = 'LOG GERAL'):
-    """
-    Orquestra o log (terminal/TXT) e o registro no LogDetalheEvento (DB).
-    """
-    horario = obter_horario_atual()
-    log_texto_completo = f"[{horario}] {mensagem}"
+def finalizar_sessao_log_sistema(id_log_sistema: int) -> bool:
+    """ Atualiza o registro na tabela 'LogSistema' para marcar o horário de finalização. """
     
-    _imprimir_e_salvar_txt(log_texto_completo)
+    try:
+        linhas_afetadas = Fazer_consulta_banco({
+            "query": "UPDATE LogSistema SET horarioFinal = NOW() WHERE idLogSistema = %s AND horarioFinal IS NULL", 
+            "params": (id_log_sistema,),
+        })
+
+        if linhas_afetadas > 0:
+            registrar_log_evento(f"[DB] Log de Sistema (Sessão) ID {id_log_sistema} finalizado.", False)
+            return True
+        return False
+
+    except RuntimeError as e:
+        registrar_log_evento(f"ERRO CRÍTICO ao finalizar LogSistema ID {id_log_sistema}: {str(e)}", False)
+        return False
+
+def inserir_detalhe_de_evento(fk_log_sistema: int, evento_captura: str, descricao: str) -> int:
+    """ Insere um evento detalhado na tabela 'LogDetalheEvento'. """
     
-    if registrar_bd:
-        if fkLogSistema is None:
-            _imprimir_e_salvar_txt("ERRO: Tentativa de registrar no BD falhou. fkLogSistema não fornecido.")
-            return
-            
-        try:
-            Fazer_consulta_banco({
-                "query": "INSERT INTO LogDetalheEvento (fkLogSistema, eventoCaptura, descricao) VALUES (%s, %s, %s);",
-                "params": (fkLogSistema, eventoCaptura, mensagem) 
-            })
-            _imprimir_e_salvar_txt(f"[DB] Log Detalhe Evento ({eventoCaptura}) inserido.")
-        except RuntimeError as e:
-            _imprimir_e_salvar_txt(f"ERRO BD: Falha ao inserir Log Detalhe Evento ({eventoCaptura}). Detalhes: {str(e)}")
+    try:
+        id_inserido = Fazer_consulta_banco({
+            "query": "INSERT INTO LogDetalheEvento (fkLogSistema, eventoCaptura, descricao) VALUES (%s, %s, %s);",
+            "params": (fk_log_sistema, evento_captura, descricao),
+        })
+        if id_inserido > 0:
+            registrar_log_evento(f"[DB] Log Detalhe de Evento inserido (Evento: {evento_captura}). ID: {id_inserido}", False)
+        return id_inserido
+
+    except RuntimeError as e:
+        registrar_log_evento(f"ERRO CRÍTICO ao inserir LogDetalheEvento: {str(e)}", False)
+        return -1
