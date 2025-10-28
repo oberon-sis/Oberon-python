@@ -23,6 +23,7 @@ jobs:
       JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
       JIRA_PROJECT_KEY: ${{ secrets.JIRA_PROJECT_KEY }}
       
+      # Variáveis estáticas de ambiente
       EXECUTABLE_BASE_NAME: OberonAgente
       DIST_PATH: dist
 
@@ -85,34 +86,37 @@ jobs:
 
           ZIP_NAME="${BASE_NAME}-${VERSION}-${OS_SUFFIX}.zip"
 
-          # Encontra o executável gerado (robusto para subpastas do PyInstaller)
+          # 1. Encontra o executável gerado (robusto para subpastas do PyInstaller)
           EXECUTABLE_PATH=$(find "$DIST_PATH" -maxdepth 2 -type f -name "${BASE_NAME}${EXECUTABLE_EXT}" -print -quit)
           if [ -z "$EXECUTABLE_PATH" ]; then
             echo "Erro: Executável não encontrado!"
             exit 1
           fi
 
-          # Move para o nome limpo na raiz do dist
-          mv "$EXECUTABLE_PATH" "$DIST_PATH/${BASE_NAME}${EXECUTABLE_EXT}"
-
-          # Copia o .env
+          TARGET_PATH="$DIST_PATH/${BASE_NAME}${EXECUTABLE_EXT}"
+          if [ "$EXECUTABLE_PATH" != "$TARGET_PATH" ]; then
+            echo "Movendo '$EXECUTABLE_PATH' para '$TARGET_PATH'"
+            mv "$EXECUTABLE_PATH" "$TARGET_PATH"
+          else
+            echo "Executável já está no destino. Pulando mv para evitar o erro 'are identical'."
+          fi
           cp .env "$DIST_PATH/.env"
 
-          # Promove o nome do ZIP para $GITHUB_ENV para que seja acessível nos passos seguintes
           echo "ZIP_NAME=$ZIP_NAME" >> $GITHUB_ENV
           echo "zip_name_output=$ZIP_NAME" >> $GITHUB_OUTPUT # Mantém o output para o Upload
 
-      # Criar ZIP no Windows
       - name: Criar ZIP Windows
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
+          # Acessa as variáveis de ambiente promovidas ($env:ZIP_NAME)
           $Executable = "$env:EXECUTABLE_BASE_NAME.exe"
           
           $ExePath = Join-Path $env:DIST_PATH $Executable
           $EnvPath = Join-Path $env:DIST_PATH ".env"
-          $DestPath = Join-Path $env:DIST_PATH $env:ZIP_NAME # $env:ZIP_NAME é acessível via $GITHUB_ENV
+          $DestPath = Join-Path $env:DIST_PATH $env:ZIP_NAME # Usa Join-Path para evitar erros de string
 
+          # Compress-Archive usando caminhos seguros
           Compress-Archive -Path $ExePath, $EnvPath -DestinationPath $DestPath
 
       - name: Criar ZIP Linux/macOS
@@ -120,7 +124,6 @@ jobs:
         shell: bash
         run: |
           # Acessa as variáveis de ambiente promovidas ($ZIP_NAME)
-          # Acessa as variáveis estáticas de ambiente ($DIST_PATH, $EXECUTABLE_BASE_NAME)
           zip -j "$DIST_PATH/$ZIP_NAME" "$DIST_PATH/$EXECUTABLE_BASE_NAME" "$DIST_PATH/.env"
 
       - name: Upload do ZIP como artefato
@@ -155,6 +158,7 @@ jobs:
         run: |
           set -e
           RELEASE_UPLOAD_URL="${{ steps.create_release.outputs.upload_url }}"
+          # Busca e envia apenas os arquivos .zip (3 no total)
           find ./assets -name "*.zip" -print0 | while IFS= read -r -d $'\0' FILE
           do
             ASSET_NAME=$(basename "$FILE")
