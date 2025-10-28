@@ -149,7 +149,6 @@ jobs:
           # Usa o output da etapa prepare_files (zip_name_output)
           name: ${{ steps.prepare_files.outputs.zip_name_output }}
           path: ${{ env.DIST_PATH }}/${{ steps.prepare_files.outputs.zip_name_output }}
-
   release:
     runs-on: ubuntu-latest
     needs: build
@@ -178,14 +177,18 @@ jobs:
         run: |
           set -e
           RELEASE_UPLOAD_URL="${{ steps.create_release.outputs.upload_url }}"
+          
           find ./assets -name "*.zip" -print0 | while IFS= read -r -d $'\0' FILE
           do
+            ABSOLUTE_PATH="$PWD/$FILE"
+            
             ASSET_NAME=$(basename "$FILE")
             echo "Enviando asset: $ASSET_NAME"
+            
             curl -sSL \
               -X POST \
               -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
               -H "Content-Type: application/octet-stream" \
-              --data-binary "@$FILE" \
+              --data-binary "@$ABSOLUTE_PATH" \
               "$RELEASE_UPLOAD_URL?name=$ASSET_NAME"
           done
