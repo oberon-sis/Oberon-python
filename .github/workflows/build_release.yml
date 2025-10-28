@@ -51,9 +51,11 @@ jobs:
         fi
         
         mv "dist/$ORIGINAL_NAME" "dist/$NEW_NAME"
-        echo "ASSET_PATH=dist/$NEW_NAME" >> $GITHUB_ENV
+        
+        # Exporta o caminho completo do asset e o nome do asset para uso posterior
+        echo "ASSET_FILE_PATH=dist/$NEW_NAME" >> $GITHUB_ENV
+        echo "ASSET_FILE_NAME=$NEW_NAME" >> $GITHUB_ENV
     
-    # --- Criação do Release e Upload de Assets ---
     
     - name: Criar Release (Apenas no Windows Runner)
       if: startsWith(github.ref, 'refs/tags/') && matrix.os == 'windows-latest'
@@ -73,5 +75,6 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
         upload_url: ${{ steps.create_release.outputs.upload_url || github.event.release.upload_url }}
-        asset_path: ${{ env.ASSET_PATH }}
-        asset_name: ${{ env.ASSET_PATH | basename }}
+        asset_content_type: application/octet-stream
+        asset_path: ${{ env.ASSET_FILE_PATH }}
+        asset_name: ${{ env.ASSET_FILE_NAME }}
