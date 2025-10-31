@@ -177,19 +177,32 @@ jobs:
       - name: Enviar assets à Release
         run: |
           set -e
-          RELEASE_UPLOAD_URL="${{ steps.create_release.outputs.upload_url }}"
+          
+          RELEASE_UPLOAD_URL_CLEANED=$(echo "${{ steps.create_release.outputs.upload_url }}" | sed 's/{?name,label}//')
+          
+          if [ $(find ./assets -name "*.zip" | wc -l) -eq 0 ]; then
+            echo "Aviso: Nenhum arquivo .zip encontrado para upload."
+            exit 0
+          fi
           
           find ./assets -name "*.zip" -print0 | while IFS= read -r -d $'\0' FILE
           do
             ABSOLUTE_PATH="$PWD/$FILE"
             
+            if [ ! -f "$ABSOLUTE_PATH" ]; then
+                echo "Erro: Arquivo não encontrado/ilegível em: $ABSOLUTE_PATH"
+                continue
+            fi
+            
             ASSET_NAME=$(basename "$FILE")
             echo "Enviando asset: $ASSET_NAME"
+            
+            FINAL_URL="${RELEASE_UPLOAD_URL_CLEANED}?name=$ASSET_NAME"
             
             curl -sSL \
               -X POST \
               -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
               -H "Content-Type: application/octet-stream" \
               --data-binary "@$ABSOLUTE_PATH" \
-              "$RELEASE_UPLOAD_URL?name=$ASSET_NAME"
+              "$FINAL_URL"
           done
