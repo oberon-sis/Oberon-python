@@ -167,12 +167,13 @@ jobs:
           release_name: Release ${{ github.ref_name }}
           draft: false
           prerelease: false
-
       - name: Baixar todos os artefatos
         uses: actions/download-artifact@v4
         with:
           path: ./assets
-
+          pattern: '*'
+          merge-multiple: true 
+          
       - name: Enviar assets à Release
         run: |
           set -e
