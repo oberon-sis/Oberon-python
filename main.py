@@ -73,6 +73,11 @@ def main():
             
             # 3. Finaliza LogSistema
             finalizar_sessao_log_sistema(fkLogSistema)
+        if os.name == 'nt':
+            import os
+            os.system("pause") 
+        else:
+            input("\nPressione Enter para sair...")
 
 def orquestrar_coleta():
     """ Orquestrador principal funcional. """
