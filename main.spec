@@ -1,19 +1,16 @@
 # -*- mode: python ; coding: utf-8 -*-
-from PyInstaller.utils.hooks import collect_all
 import sys
 import os
+from PyInstaller.utils.hooks import collect_all
+
+# 1. COLETA DE DEPENDÊNCIAS
+# Colete tudo do mysql.connector para resolver warnings/erros de importação
+datas_mysql, binaries_mysql, hiddenimports_mysql = collect_all('mysql.connector')
 
 icone_path = 'app_icon.ico' 
 
-try:
-    mysql_path = os.path.dirname(sys.modules['mysql.connector'].__file__)
-except:
-    mysql_path = None
-
+# Adiciona a DLL do runtime C++ no Windows (necessário para alguns binários)
 binaries_list = []
-if mysql_path:
-    binaries_list.append((mysql_path, 'mysql.connector'))
-
 try:
     runtime_dll_path = os.path.join(sys.exec_prefix, 'DLLs', 'vcruntime140.dll')
     if os.path.exists(runtime_dll_path):
@@ -27,22 +24,23 @@ a = Analysis(
     ['main.py'],
     pathex=[], 
     
-    binaries=binaries_list, # Usa a lista de binários coletada
+    # Junta os binários coletados do MySQL e os binários adicionais
+    binaries=binaries_mysql + binaries_list, 
     
-    datas=[
+    # Junta as datas coletadas do MySQL com os arquivos do projeto
+    datas=datas_mysql + [
         ('OBERON_ENV.example', '.'), 
-        
         ('src', 'src'),
         ('utils', 'utils'),
-        
     ],
     
-    # 🌟 ADICIONANDO IMPORTAÇÕES OCULTAS (REFORÇANDO TODAS AS BIBLIOTECAS)
-    hiddenimports=[
-        'mysql.connector', 
-        'mysql.connector.locales.en',
-        'psutil',       
-        'python-dotenv' 
+    # 2. CORREÇÃO DE IMPORTS OCULTOS:
+    # Inclui dependências problemáticas como psutil, python-dotenv e o 'encodings'
+    hiddenimports=hiddenimports_mysql + [
+        'psutil',
+        'python-dotenv',
+        'encodings', # 🌟 CORREÇÃO PARA ModuleNotFoundError: No module named 'encodings'
+        'io' 
     ], 
     
     hookspath=[],
@@ -61,15 +59,19 @@ a = Analysis(
     optimize=0,
 )
 
-pyz = PYZ(a.pure, a.zipped_data,
+pyz = PYZ(a.pure, 
+          a.zipped_data,
           cipher=None,
           )
 
+# 3. CRIAÇÃO DO EXECUTÁVEL (ONEFILE)
+# A ausência do bloco COLLECT força a criação de um executável de arquivo único
 exe = EXE(
     pyz,
     a.scripts,
-    [],
-    exclude_binaries=True,
+    a.binaries,  # Inclui os binários na execução
+    a.zipfiles,  # Inclui os arquivos compactados
+    a.datas,     # Inclui os arquivos de dados (como .env)
     name='OberonAgente', 
     debug=False,
     bootloader_ignore_signals=False,
@@ -86,13 +88,5 @@ exe = EXE(
     icon=icone_path 
 )
 
-coll = COLLECT(
-    exe,
-    a.binaries,
-    a.zipfiles,
-    a.datas,
-    strip=False,
-    upx=True,
-    upx_exclude=[],
-    name='OberonAgente',
-)
+# 🛑 O BLOCO COLLECT DEVE SER REMOVIDO PARA CRIAR UM EXECUTÁVEL SINGLE-FILE.
+# coll = COLLECT(...)

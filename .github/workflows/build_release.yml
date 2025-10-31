@@ -10,7 +10,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [windows-latest, ubuntu-latest] # Removido 'macos-latest'
+        os: [windows-latest, ubuntu-latest]
 
     env:
       # Secrets do ambiente (preenchidos a partir dos Secrets do GitHub)
@@ -39,13 +39,15 @@ jobs:
 
       - name: Instalar dependências
         run: |
+          # 1. Clona e instala requisitos
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install pyinstaller python-dotenv
+          pip install pyinstaller python-dotenv # Instala ferramentas de build
 
       - name: Gerar .env temporário com secrets
         shell: bash
         run: |
+          # 2. Gera o arquivo de ambiente para que o PyInstaller use load_dotenv() se necessário, e o inclui no zip
           set -e
           echo "USER_DB=${USER_DB}" > .env
           echo "PASSWORD_DB=${PASSWORD_DB}" >> .env
@@ -59,7 +61,8 @@ jobs:
 
       - name: Rodar PyInstaller
         shell: bash
-        run: pyinstaller main.spec
+        # 3. Empacota usando o main.spec existente no repositório
+        run: pyinstaller main.spec 
 
       - name: Instalar zip (Linux)
         if: runner.os == 'Linux'
@@ -87,52 +90,36 @@ jobs:
 
           ZIP_NAME="${BASE_NAME}-${VERSION}-${OS_SUFFIX}.zip"
 
-          # 1. Encontra o executável gerado
-          EXECUTABLE_PATH=$(find "$DIST_PATH" -maxdepth 2 -type f -name "${BASE_NAME}${EXECUTABLE_EXT}" -print -quit)
-          if [ -z "$EXECUTABLE_PATH" ]; then
-            echo "Erro: Executável não encontrado!"
-            exit 1
+          # Encontra e move o executável
+          EXECUTABLE_PATH="$DIST_PATH/$BASE_NAME$EXECUTABLE_EXT"
+          if [ ! -f "$EXECUTABLE_PATH" ]; then
+             EXECUTABLE_PATH=$(find "$DIST_PATH" -maxdepth 2 -type f -name "${BASE_NAME}${EXECUTABLE_EXT}" -print -quit)
+             if [ -z "$EXECUTABLE_PATH" ]; then
+                echo "Erro: Executável não encontrado!"
+                exit 1
+             fi
+             if [[ "$EXECUTABLE_PATH" != "$DIST_PATH/$BASE_NAME$EXECUTABLE_EXT" ]]; then
+                mv "$EXECUTABLE_PATH" "$DIST_PATH/$BASE_NAME$EXECUTABLE_EXT"
+                PARENT_DIR=$(dirname "$EXECUTABLE_PATH")
+                rmdir "$PARENT_DIR" 2>/dev/null || echo "Aviso: Não foi possível remover o diretório pai: $PARENT_DIR"
+             fi
           fi
-
-          TARGET_FILENAME="${BASE_NAME}${EXECUTABLE_EXT}"
-          TARGET_PATH="$DIST_PATH/$TARGET_FILENAME"
-          TEMP_PATH="$DIST_PATH/temp_move_${TARGET_FILENAME}" # Novo caminho temporário
-
-          if [[ "$EXECUTABLE_PATH" != "$TARGET_PATH" ]]; then
-            echo "Executável aninhado encontrado: '$EXECUTABLE_PATH'. Movendo em duas etapas para garantir estabilidade."
-            
-            mv "$EXECUTABLE_PATH" "$TEMP_PATH"
-            
-            mv "$TEMP_PATH" "$TARGET_PATH"
-            
-            PARENT_DIR=$(dirname "$EXECUTABLE_PATH")
-            if [ "$PARENT_DIR" != "$DIST_PATH" ]; then
-              rmdir "$PARENT_DIR" 2>/dev/null || echo "Aviso: Não foi possível remover o diretório pai: $PARENT_DIR"
-            fi
-          else
-            echo "Executável já está na raiz de dist. Pulando movimentação."
-          fi
-
-          # 3. Copia o .env
+          
+          # Copia o .env para a pasta dist para ser empacotado
           cp .env "$DIST_PATH/.env"
 
-          # 4. Promove o nome do ZIP para $GITHUB_ENV
           echo "ZIP_NAME=$ZIP_NAME" >> $GITHUB_ENV
-          echo "zip_name_output=$ZIP_NAME" >> $GITHUB_OUTPUT # Mantém o output para o Upload
+          echo "zip_name_output=$ZIP_NAME" >> $GITHUB_OUTPUT 
 
       # Criar ZIP no Windows (PowerShell)
       - name: Criar ZIP Windows
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          # Acessa as variáveis de ambiente promovidas ($env:ZIP_NAME)
           $Executable = "$env:EXECUTABLE_BASE_NAME.exe"
-          
           $ExePath = Join-Path $env:DIST_PATH $Executable
           $EnvPath = Join-Path $env:DIST_PATH ".env"
-          $DestPath = Join-Path $env:DIST_PATH $env:ZIP_NAME # Usa Join-Path para evitar erros de string
-
-          # Compress-Archive usando caminhos seguros
+          $DestPath = Join-Path $env:DIST_PATH $env:ZIP_NAME 
           Compress-Archive -Path $ExePath, $EnvPath -DestinationPath $DestPath
 
       # Criar ZIP Linux/macOS (Bash)
@@ -140,13 +127,11 @@ jobs:
         if: runner.os != 'Windows'
         shell: bash
         run: |
-          # Acessa as variáveis de ambiente promovidas ($ZIP_NAME)
           zip -j "$DIST_PATH/$ZIP_NAME" "$DIST_PATH/$EXECUTABLE_BASE_NAME" "$DIST_PATH/.env"
 
       - name: Upload do ZIP como artefato
         uses: actions/upload-artifact@v4
         with:
-          # Usa o output da etapa prepare_files (zip_name_output)
           name: ${{ steps.prepare_files.outputs.zip_name_output }}
           path: ${{ env.DIST_PATH }}/${{ steps.prepare_files.outputs.zip_name_output }}
   release:

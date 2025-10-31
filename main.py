@@ -47,14 +47,17 @@ def main():
     """ Ponto de entrada principal com tratamento de interrupção. """
     global fkLogSistema
     global logo
-    
+    pausa_necessaria = False 
     try:
         print(logo)
         orquestrar_coleta()
         
     except KeyboardInterrupt:
+        pausa_necessaria = True
         formatar_palavra("\nMonitoramento Interrompido pelo Usuário.")
-    
+    else: 
+        if maquina_data is None:
+             pausa_necessaria = True
     finally:
         # Lógica de encerramento
         if fkLogSistema is not None and fkLogSistema != -1:
@@ -71,13 +74,10 @@ def main():
                     id_log_detalhe, 'Máquina Desligou/Agente Encerrado', 'Encerramento inesperado.', 'Software', 'Critica', fkLogSistema
                 )
             
-            # 3. Finaliza LogSistema
             finalizar_sessao_log_sistema(fkLogSistema)
-        if os.name == 'nt':
-            import os
-            os.system("pause") 
-        else:
-            input("\nPressione Enter para sair...")
+        if pausa_necessaria and fkLogSistema is None:
+            print("\n ATENÇÃO: O AGENTE ENCERROU INESPERADAMENTE. VERIFIQUE OS LOGS ACIMA.")
+            input("Pressione Enter para sair...")
 
 def orquestrar_coleta():
     """ Orquestrador principal funcional. """
