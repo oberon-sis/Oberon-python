@@ -7,6 +7,7 @@ from src.maquina_config import buscar_e_validar_maquina, obter_parametros_monito
 from src.alertas import inserir_registro_de_metrica, processar_alerta_leitura
 from src.captura import capturar_dado_da_metrica
 from src.incidente import registrar_incidente
+from utils.Database import Fazer_consulta_banco
 
 
 # Constantes de Configuração
@@ -15,6 +16,7 @@ INTERVALO_DE_COLETA_SEGUNDOS = 10
 # Variáveis de estado global (simples)
 maquina_data = None
 fkLogSistema = None
+slackInfo = None
 
 logo = """
 ║════════════════════════════════════════════════════════════════════════════════════════╣
@@ -83,6 +85,7 @@ def orquestrar_coleta():
     """ Orquestrador principal funcional. """
     global maquina_data
     global fkLogSistema
+    global slackInfo 
     
     # 1. VALIDAÇÃO E INÍCIO DE SESSÃO
     maquina_data = buscar_e_validar_maquina()
@@ -103,6 +106,27 @@ def orquestrar_coleta():
     if not parametros:
         registrar_log_evento("Nenhum parâmetro configurado. Encerrando.", True, fkLogSistema, 'LOG GERAL')
         return
+    IDENTIFICADOR = Fazer_consulta_banco({
+        "query": """
+                SELECT e.idEmpresa FROM Empresa AS e Join Maquina AS m on e.idEmpresa = m.fkEmpresa 
+                WHERE m.idMaquina = %s;        
+        """, 
+        "params": (maquina_data['idMaquina'], )
+    })
+    print(IDENTIFICADOR[0][0])
+    slackInfoRes = Fazer_consulta_banco({
+        "query": """
+                SELECT ID_CANAL_SLACK, NOME_CANAL_SLACK FROM vw_Dados_Slack WHERE IDENTIFICADOR_EMPRESA = %s;        
+        """, 
+        "params": (IDENTIFICADOR[0][0], )
+    })
+    slackInfo = {
+        "ID_CANAL_SLACK": slackInfoRes[0][0],
+        "NOME_CANAL_SLACK": slackInfoRes[0][1]
+    }
+
+    print(slackInfo)
+
 
     # 3. LOOP DE COLETA
     while True:
