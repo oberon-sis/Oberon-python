@@ -2,6 +2,7 @@
 
 from utils.Database import Fazer_consulta_banco
 from src.log_evento import registrar_log_evento
+from src.slack_service import enviar_notificacao_slack
 
 def inserir_registro_de_metrica(valor: float, fkComponente: int) -> int:
     """ Insere o Registro e retorna o ID. """
@@ -17,7 +18,7 @@ def inserir_registro_de_metrica(valor: float, fkComponente: int) -> int:
         registrar_log_evento(f"ERRO BD CRÍTICO: Falha ao inserir Registro: {str(e)}", False)
         return -1
 
-def processar_alerta_leitura(idRegistro: int, idParametro: int, tipo: str, valor: float, limite: float, nivel: str, fkLogSistema: int):
+def processar_alerta_leitura(idRegistro: int, idParametro: int, tipo: str, valor: float, limite: float, nivel: str, fkLogSistema: int, slackInfo: dict):
     """ Processa o limite e insere o Alerta no DB. """
     
     alerta_ativo = valor >= limite
@@ -30,6 +31,7 @@ def processar_alerta_leitura(idRegistro: int, idParametro: int, tipo: str, valor
                 "query": "INSERT INTO Alerta (fkRegistro, fkParametro, descricao, nivel) VALUES (%s, %s, %s, %s);",
                 "params": (idRegistro, idParametro, descricao, nivel),
             })
+            mandar_notificao_slack(slackInfo["ID_CANAL_SLACK"], tipo, nivel, valor, limite, descricao)
             
             if id_alerta > 0:
                 print(f"   Alerta ABERTO para {tipo} (nível: {nivel}). ID Alerta: {id_alerta}")
@@ -38,7 +40,7 @@ def processar_alerta_leitura(idRegistro: int, idParametro: int, tipo: str, valor
                 registrar_log_evento(f"ERRO: Falha ao inserir Alerta para {tipo} no DB.", True, fkLogSistema, 'ERRO ALERTA')
         except RuntimeError as e:
             registrar_log_evento(f"ERRO BD CRÍTICO ao gerar alerta para {tipo}: {str(e)}", True, fkLogSistema, 'ERRO ALERTA')
+def mandar_notificao_slack(channel_id: str, tipo: str, nivel: str, valor: float, limite: float, descricao: str):
 
-def mandar_notificao_slack(mensagem):
     """ Simulação de envio de notificação (para implementação futura). """
-    print(f"[SLACK] Notificação pendente: {mensagem}")
+    enviar_notificacao_slack(channel_id, tipo, nivel, valor, limite, descricao)

@@ -154,7 +154,8 @@ def orquestrar_coleta():
                     
                     processar_alerta_leitura(
                         idRegistro, medida['idParametro'], tipo, valor_dado, 
-                        medida['limite'], medida['nivel'], fkLogSistema
+                        medida['limite'], medida['nivel'], fkLogSistema, 
+                        slackInfo
                     )
         
         print('\n╚═══════════════════════════════════════════════════════════════════════════════════════════════════════════╝')
