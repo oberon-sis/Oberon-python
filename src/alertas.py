@@ -23,8 +23,9 @@ def processar_alerta_leitura(idRegistro: int, idParametro: int, tipo: str, valor
     diferenca =  abs(limite - valor) 
     descricao = None
     titulo_notificacao = None
-    if(nivel == "ACEITAVEL"):
+    if(nivel == "ACEITÁVEL"):
         if(valor < limite):
+            nivel = "OSCIOSO"
             titulo_notificacao = "ALERTA OSCIOSO DE MONITORAMENTO"
             alerta_ativo = True
             descricao = f"Uso de {tipo} está abaixo do nivel aceitavél, se encontra em estado oscioso ({limite:.2f}%). Valor atual: {valor:.2f}% ({diferenca}%  Abaixo do Limite)."
@@ -37,6 +38,7 @@ def processar_alerta_leitura(idRegistro: int, idParametro: int, tipo: str, valor
         if titulo_notificacao is None:
             titulo_notificacao = f"ALERTA {nivel} DE MONITORAMENTO"
         try:
+
             id_alerta = Fazer_consulta_banco({
                 "query": "INSERT INTO Alerta (fkRegistro, fkParametro, descricao, nivel) VALUES (%s, %s, %s, %s);",
                 "params": (idRegistro, idParametro, descricao, nivel),
