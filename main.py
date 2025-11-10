@@ -7,14 +7,19 @@ from src.maquina_config import buscar_e_validar_maquina, obter_parametros_monito
 from src.alertas import inserir_registro_de_metrica, processar_alerta_leitura
 from src.captura import capturar_dado_da_metrica
 from src.incidente import registrar_incidente
+from utils.Database import Fazer_consulta_banco
+from src.slack_service import procurar_informacoes_slack
+from src.slack_service import enviar_notificacao_slack
+
 
 
 # Constantes de Configuração
-INTERVALO_DE_COLETA_SEGUNDOS = 10 
+INTERVALO_DE_COLETA_SEGUNDOS = 200
 
 # Variáveis de estado global (simples)
 maquina_data = None
 fkLogSistema = None
+slackInfo = None
 
 logo = """
 ║════════════════════════════════════════════════════════════════════════════════════════╣
@@ -83,6 +88,7 @@ def orquestrar_coleta():
     """ Orquestrador principal funcional. """
     global maquina_data
     global fkLogSistema
+    global slackInfo 
     
     # 1. VALIDAÇÃO E INÍCIO DE SESSÃO
     maquina_data = buscar_e_validar_maquina()
@@ -104,6 +110,12 @@ def orquestrar_coleta():
         registrar_log_evento("Nenhum parâmetro configurado. Encerrando.", True, fkLogSistema, 'LOG GERAL')
         return
 
+    ID_CNAAL_SLACK = procurar_informacoes_slack(maquina_data['idMaquina'])
+
+    if ID_CNAAL_SLACK is None or len(ID_CNAAL_SLACK) < 10:
+        registrar_log_evento("Nenhum Canal encontrado", True, fkLogSistema, 'LOG GERAL')
+        return 
+
     # 3. LOOP DE COLETA
     while True:
         registrar_log_evento("Iniciando novo ciclo de coleta...", True, fkLogSistema, 'LOG COLETA')
@@ -111,7 +123,6 @@ def orquestrar_coleta():
         
         for tipo, lista_parametros in parametros.items():
             
-            # Coleta o valor
             valor_dado = capturar_dado_da_metrica(tipo, fkLogSistema)
 
             if valor_dado is None:
@@ -128,10 +139,13 @@ def orquestrar_coleta():
                     
                     print(f"   - Coleta: {tipo} ({medida['unidade']}) → Valor: {valor_dado:.2f} {medida['unidade']} → Limite Configurado ({medida['nivel']}): {medida['limite']}")
                     
-                    processar_alerta_leitura(
+                    alerta_descricao = processar_alerta_leitura(
                         idRegistro, medida['idParametro'], tipo, valor_dado, 
                         medida['limite'], medida['nivel'], fkLogSistema
                     )
+
+                    if alerta_descricao is not None:
+                        enviar_notificacao_slack(ID_CNAAL_SLACK, alerta_descricao, maquina_data )
         
         print('\n╚═══════════════════════════════════════════════════════════════════════════════════════════════════════════╝')
         time.sleep(INTERVALO_DE_COLETA_SEGUNDOS)

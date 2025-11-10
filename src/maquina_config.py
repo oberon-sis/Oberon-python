@@ -146,7 +146,7 @@ def buscar_e_validar_maquina():
     
     # 1. Validação
     try:
-        resultado = Fazer_consulta_banco({"query": "SELECT idMaquina FROM vw_DadosMaquina WHERE macAddress = %s", "params": (mac_adress,)})
+        resultado = Fazer_consulta_banco({"query": "SELECT idMaquina, nome FROM vw_DadosMaquina WHERE macAddress = %s", "params": (mac_adress,)})
     except RuntimeError as e:
         registrar_log_evento(f"ERRO BD CRÍTICO ao buscar máquina: {str(e)}", False)
         return None
@@ -156,6 +156,7 @@ def buscar_e_validar_maquina():
         return None
 
     id_maquina = resultado[0][0]
+    nome_maquina = resultado[0][1]
     dados_sistema = _obter_dados_atuais_do_sistema()
     
     # 2. Atualiza a tabela Maquina
@@ -176,7 +177,12 @@ def buscar_e_validar_maquina():
     except Exception as e:
         registrar_log_evento(f"[DB] ERRO ao coletar/atualizar hardware: {e}", False)
         
-    return {'idMaquina': id_maquina, 'macAddress': mac_adress}
+    return {
+    "idMaquina": id_maquina,
+    "nomeMaquina": nome_maquina, 
+    "dados_sistema": dados_sistema, 
+    "dados_hardware": dados_hardware
+    }
 
 def obter_parametros_monitoramento(id_maquina):
     """ Consulta a view vw_ParametrosComponente para obter todos os limites. """
