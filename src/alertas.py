@@ -33,7 +33,7 @@ def processar_alerta_leitura(idRegistro: int, idParametro: int, tipo: str, valor
 
     if alerta_ativo:
         if descricao is None:
-            descricao = f"Uso de {tipo} atingiu o limite de {nivel} ({limite:.2f}%). Valor atual: {valor:.2f}%."
+            descricao = f"Uso de {tipo} atingiu o limite de {nivel} ({limite:.2f}%). Valor atual: {valor:.2f}%.  _({diferenca:.2f}% Acima do Limite)_"
         if titulo_notificacao is None:
             titulo_notificacao = f"ALERTA {nivel} DE MONITORAMENTO"
         try:
