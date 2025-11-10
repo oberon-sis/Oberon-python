@@ -6,8 +6,12 @@ from src.log_evento import registrar_log_evento
 from utils.Database import Fazer_consulta_banco
 
 SLACK_BOT_TOKEN = os.getenv("SLACK_BOT_TOKEN")
+LINK_PAINEL = os.getenv("LINK_PAINEL")
+LINK_HOME = os.getenv("LINK_HOME")
 
 slack_client = None
+
+
 if SLACK_BOT_TOKEN:
     slack_client = WebClient(token=SLACK_BOT_TOKEN)
     print(" [SLACK SERVICE] Cliente Slack inicializado com sucesso.")
@@ -36,12 +40,10 @@ def procurar_informacoes_slack(idMaquina: int):
 
     return slackInfoRes[0][0]
 
-
-LINK_PAINEL = "https://painel.monitoramento.com.br/ativos/"
-LINK_HOME = "https://painel.monitoramento.com.br/ativos/"
 def formatar_mensagem_alerta(idMaquina:int, alerta_descricao: dict, informacoes_maquina: dict,nomeMaquina:str,  informacoes_componentes:dict) -> list:
     """ 
     Array blocks para formatação
+    para editar o formato acessar https://app.slack.com/block-kit-builder
     """
     blocks_container = {
         "blocks": [

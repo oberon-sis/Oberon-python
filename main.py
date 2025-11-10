@@ -14,7 +14,7 @@ from src.slack_service import enviar_notificacao_slack
 
 
 # Constantes de Configuração
-INTERVALO_DE_COLETA_SEGUNDOS = 60
+INTERVALO_DE_COLETA_SEGUNDOS = 200
 
 # Variáveis de estado global (simples)
 maquina_data = None
